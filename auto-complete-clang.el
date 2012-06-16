@@ -1,6 +1,7 @@
 ;;; auto-complete-clang.el --- Auto Completion source for clang for GNU Emacs
 
 ;; Copyright (C) 2010  Brian Jiang
+;; Copyright (C) 2012  York Zhao
 
 ;; Author: Brian Jiang <brianjcj@gmail.com>
 ;; Keywords: completion, convenience
@@ -27,10 +28,8 @@
 
 ;;; Code:
 
-
 (provide 'auto-complete-clang)
 (require 'auto-complete)
-
 
 (defcustom ac-clang-executable
   (executable-find "clang")
@@ -60,15 +59,29 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
   :type '(repeat (string :tag "Argument" "")))
 (put 'ac-clang-flags 'safe-local-variable 'listp)
 
+(defface ac-clang-candidate-face
+  '((t (:background "lightgray" :foreground "navy")))
+  "Face for clang candidate"
+  :group 'auto-complete)
+
+(defface ac-clang-selection-face
+  '((t (:background "navy" :foreground "white")))
+  "Face for the clang selected candidate."
+  :group 'auto-complete)
+
 ;;; The prefix header to use with Clang code completion. 
 (defvar ac-clang-prefix-header nil)
+
+(defvar ac-template-start-point nil)
+(defvar ac-template-candidates (list "ok" "no" "yes:)"))
 
 ;;; Set the Clang prefix header
 (defun ac-clang-set-prefix-header (ph)
   (interactive
    (let ((def (car (directory-files "." t "\\([^.]h\\|[^h]\\).pch\\'" t))))
      (list
-      (read-file-name (concat "Clang prefix header(current: " ac-clang-prefix-header ") : ")
+      (read-file-name
+       (concat "Clang prefix header(current: " ac-clang-prefix-header ") : ")
                       (when def (file-name-directory def))
                       def nil (when def (file-name-nondirectory def))))))
   (cond ((string-match "^[\s\t]*$" ph)
@@ -112,20 +125,20 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
         (if (string= match prev-match)
             (progn
               (when detailed_info
-                (setq match (propertize match
-                                        'ac-clang-help
-                                        (concat
-                                         (get-text-property 0 'ac-clang-help (car lines))
-                                         "\n"
-                                         detailed_info)))
-                (setf (car lines) match)
-                ))
+                (setq match
+                      (propertize match
+                                  'ac-clang-help
+                                  (concat
+                                   (get-text-property 0 'ac-clang-help
+                                                      (car lines))
+                                   "\n"
+                                   detailed_info)))
+                (setf (car lines) match)))
           (setq prev-match match)
           (when detailed_info
             (setq match (propertize match 'ac-clang-help detailed_info)))
           (push match lines))))    
     lines))
-
 
 (defun ac-clang-handle-error (res args)
   (goto-char (point-min))
@@ -163,11 +176,12 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
       ;; Still try to get any useful input.
       (ac-clang-parse-output prefix))))
 
-
 (defsubst ac-clang-build-location (pos)
   (save-excursion
     (goto-char pos)
-    (format "%s:%d:%d" (if ac-clang-auto-save buffer-file-name "-") (line-number-at-pos)
+    (format "%s:%d:%d"
+            (if ac-clang-auto-save buffer-file-name "-")
+            (line-number-at-pos)
             (1+ (- (point) (line-beginning-position))))))
 
 (defsubst ac-clang-lang-option ()
@@ -196,7 +210,6 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
           (list (ac-clang-build-location pos))
           (list (if ac-clang-auto-save buffer-file-name "-"))))
 
-
 (defsubst ac-clang-clean-document (s)
   (when s
     (setq s (replace-regexp-in-string "<#\\|#>\\|\\[#" "" s))
@@ -207,20 +220,7 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
   (if (stringp item)
       (let (s)
         (setq s (get-text-property 0 'ac-clang-help item))
-        (ac-clang-clean-document s)))
-  ;; (popup-item-property item 'ac-clang-help)
-  )
-
-
-(defface ac-clang-candidate-face
-  '((t (:background "lightgray" :foreground "navy")))
-  "Face for clang candidate"
-  :group 'auto-complete)
-
-(defface ac-clang-selection-face
-  '((t (:background "navy" :foreground "white")))
-  "Face for the clang selected candidate."
-  :group 'auto-complete)
+        (ac-clang-clean-document s))))
 
 (defun ac-clang-candidate ()
   (unless (memq (get-text-property (point) 'face)
@@ -236,16 +236,15 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
              ac-prefix
              (ac-clang-build-complete-args (- (point) (length ac-prefix)))))))
 
-
-(defvar ac-template-start-point nil)
-(defvar ac-template-candidates (list "ok" "no" "yes:)"))
-
 (defun ac-clang-action ()
   (interactive)
   ;; (ac-last-quick-help)
-  (let ((help (ac-clang-clean-document (get-text-property 0 'ac-clang-help (cdr ac-last-completion))))
+  (let ((help (ac-clang-clean-document
+               (get-text-property 0 'ac-clang-help (cdr ac-last-completion))))
         (raw-help (get-text-property 0 'ac-clang-help (cdr ac-last-completion)))
-        (candidates (list)) ss fn args (ret-t "") ret-f)
+        (candidates (list))
+        ss fn args
+        (ret-t "") ret-f)
     (setq ss (split-string raw-help "\n"))
     (dolist (s ss)
       (when (string-match "\\[#\\(.*\\)#\\]" s)
@@ -254,23 +253,29 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
       (cond ((string-match "^\\([^(]*\\)\\((.*)\\)" s)
              (setq fn (match-string 1 s)
                    args (match-string 2 s))
-             (push (propertize (ac-clang-clean-document args) 'ac-clang-help ret-t
-                               'raw-args args) candidates)
+             (push (propertize (ac-clang-clean-document args)
+                               'ac-clang-help ret-t 'raw-args args)
+                   candidates)
              (when (string-match "\{#" args)
                (setq args (replace-regexp-in-string "\{#.*#\}" "" args))
-               (push (propertize (ac-clang-clean-document args) 'ac-clang-help ret-t
-                                 'raw-args args) candidates))
+               (push (propertize (ac-clang-clean-document args)
+                                 'ac-clang-help ret-t 'raw-args args)
+                     candidates))
              (when (string-match ", \\.\\.\\." args)
                (setq args (replace-regexp-in-string ", \\.\\.\\." "" args))
-               (push (propertize (ac-clang-clean-document args) 'ac-clang-help ret-t
-                                 'raw-args args) candidates)))
-            ((string-match "^\\([^(]*\\)(\\*)\\((.*)\\)" ret-t) ;; check whether it is a function ptr
+               (push (propertize (ac-clang-clean-document args)
+                                 'ac-clang-help ret-t 'raw-args args)
+                     candidates)))
+            ;; check whether it is a function ptr
+            ((string-match "^\\([^(]*\\)(\\*)\\((.*)\\)" ret-t)
              (setq ret-f (match-string 1 ret-t)
                    args (match-string 2 ret-t))
-             (push (propertize args 'ac-clang-help ret-f 'raw-args "") candidates)
+             (push (propertize args 'ac-clang-help ret-f 'raw-args "")
+                   candidates)
              (when (string-match ", \\.\\.\\." args)
                (setq args (replace-regexp-in-string ", \\.\\.\\." "" args))
-               (push (propertize args 'ac-clang-help ret-f 'raw-args "") candidates)))))
+               (push (propertize args 'ac-clang-help ret-f 'raw-args "")
+                     candidates)))))
     (cond (candidates
            (setq candidates (delete-dups candidates))
            (setq candidates (nreverse candidates))
@@ -294,17 +299,6 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
                   (and (eq ?: c)
                        (eq ?: (char-before (1- (point))))))
           (point)))))
-
-(ac-define-source clang
-  '((candidates . ac-clang-candidate)
-    (candidate-face . ac-clang-candidate-face)
-    (selection-face . ac-clang-selection-face)
-    (prefix . ac-clang-prefix)
-    (requires . 0)
-    (document . ac-clang-document)
-    (action . ac-clang-action)
-    (cache)
-    (symbol . "c")))
 
 (defun ac-clang-same-count-in-string (c1 c2 s)
   (let ((count 0) (cur 0) (end (length s)) c)
@@ -334,7 +328,6 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
              (nreverse res)))
           (t
            sl))))
-
 
 (defun ac-template-candidate ()
   ac-template-candidates)
@@ -377,11 +370,13 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
                       (setq s (replace-regexp-in-string "#>" "}" s))
                       (setq s (replace-regexp-in-string ", \\.\\.\\." "}, ${..." s))
                       (condition-case nil
-                          (yas/expand-snippet s ac-template-start-point pos) ;; 0.6.1c
+                          ;; 0.6.1c
+                          (yas/expand-snippet s ac-template-start-point pos)
                         (error
                          ;; try this one:
-                         (ignore-errors (yas/expand-snippet ac-template-start-point pos s)) ;; work in 0.5.7
-                         )))
+                         (ignore-errors
+                           ;; work in 0.5.7
+                           (yas/expand-snippet ac-template-start-point pos s)))))
                      ((featurep 'snippet)
                       (delete-region ac-template-start-point pos)
                       (setq s (replace-regexp-in-string "<#" "$${" s))
@@ -391,10 +386,19 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
                      (t
                       (message "Dude! You are too out! Please install a yasnippet or a snippet script:)")))))))))
 
-
 (defun ac-template-prefix ()
   ac-template-start-point)
 
+(ac-define-source clang
+  '((candidates . ac-clang-candidate)
+    (candidate-face . ac-clang-candidate-face)
+    (selection-face . ac-clang-selection-face)
+    (prefix . ac-clang-prefix)
+    (requires . 0)
+    (document . ac-clang-document)
+    (action . ac-clang-action)
+    (cache)
+    (symbol . "c")))
 
 ;; this source shall only be used internally.
 (ac-define-source template
@@ -406,3 +410,4 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
     (cache)
     (symbol . "t")))
 
+;;; auto-complete-clang.el ends here
