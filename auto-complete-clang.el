@@ -59,6 +59,12 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
   :type '(repeat (string :tag "Argument" "")))
 (put 'ac-clang-flags 'safe-local-variable 'listp)
 
+;;; Whether to call clang asynchronously
+(defcustom ac-clang-asynchronous nil
+  "Whether or not to call clang asynchronously"
+  :group 'auto-complete
+  :type 'boolean)
+
 (defface ac-clang-candidate-face
   '((t (:background "lightgray" :foreground "navy")))
   "Face for clang candidate"
@@ -71,6 +77,10 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
 
 ;;; The prefix header to use with Clang code completion. 
 (defvar ac-clang-prefix-header nil)
+
+(defvar ac-clang-process nil)
+(defvar ac-clang-prefix "")
+(defvar ac-clang-results nil)
 
 (defvar ac-template-start-point nil)
 (defvar ac-template-candidates (list "ok" "no" "yes:)"))
@@ -176,6 +186,53 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
       ;; Still try to get any useful input.
       (ac-clang-parse-output prefix))))
 
+(defun ac-clang-filter (proc output)
+  (with-current-buffer (process-buffer proc)
+    (goto-char (point-max))
+    (insert output)))
+
+(defun ac-clang-sentinel (proc result)
+  (when (eq (process-status proc) 'exit)
+    (setq ac-clang-process nil)
+    (with-current-buffer (process-buffer proc)
+      (message "Received raw output from clang")
+      (setq ac-clang-results (ac-clang-parse-output ac-clang-prefix)))
+      ;; it is critical to complete members, so 
+      ;; we force ac-start to show up.
+    (ac-start :force-init t)
+    (ac-update)))
+
+(defun ac-clang-start-process (prefix &rest args)
+  ;; Start clang process asynchronously
+  (if ac-clang-results
+      ;; The asynchronous clang process has finished and completion results are
+      ;; available.
+      (prog1
+          ac-clang-results
+        ;; Reset completion results
+        (setq ac-clang-results nil)
+        (message "Received clang completion results"))
+    (when ac-clang-process
+      ;; The previous clang process is still running, kill it before starting a
+      ;; new process.
+      (kill-process ac-clang-process)
+      (setq ac-clang-process nil)
+      (message "Kill ongoing clang process"))
+    (let ((buf (get-buffer-create "*clang-output*")))
+      (with-current-buffer buf
+        (erase-buffer))
+      (setq ac-clang-prefix ac-prefix)
+      (setq ac-clang-process
+            (apply 'start-process
+                   "clang" buf ac-clang-executable args))
+      (unless ac-clang-auto-save
+        (process-send-region ac-clang-process (point-min) (point))
+        (process-send-eof ac-clang-process))
+      (set-process-sentinel ac-clang-process 'ac-clang-sentinel)
+      (set-process-filter ac-clang-process 'ac-clang-filter)
+      (message "Started clang process"))
+    nil))
+
 (defsubst ac-clang-build-location (pos)
   (save-excursion
     (goto-char pos)
@@ -232,7 +289,9 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
          (basic-save-buffer))
     (save-restriction
       (widen)
-      (apply 'ac-clang-call-process
+      (apply (if ac-clang-asynchronous
+                 'ac-clang-start-process
+               'ac-clang-call-process)
              ac-prefix
              (ac-clang-build-complete-args (- (point) (length ac-prefix)))))))
 
