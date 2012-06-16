@@ -131,19 +131,17 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
       (setq match (match-string-no-properties 1))
       (unless (string= "Pattern" match)
         (setq detailed_info (match-string-no-properties 2))
-      
         (if (string= match prev-match)
-            (progn
-              (when detailed_info
-                (setq match
-                      (propertize match
-                                  'ac-clang-help
-                                  (concat
-                                   (get-text-property 0 'ac-clang-help
-                                                      (car lines))
-                                   "\n"
-                                   detailed_info)))
-                (setf (car lines) match)))
+          (when detailed_info
+            (setq match
+                  (propertize match
+                              'ac-clang-help
+                              (concat
+                               (get-text-property 0 'ac-clang-help
+                                                  (car lines))
+                               "\n"
+                               detailed_info)))
+            (setf (car lines) match))
           (setq prev-match match)
           (when detailed_info
             (setq match (propertize match 'ac-clang-help detailed_info)))
@@ -196,7 +194,8 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
     (setq ac-clang-process nil)
     (with-current-buffer (process-buffer proc)
       (message "Received raw output from clang")
-      (setq ac-clang-results (ac-clang-parse-output ac-clang-prefix)))
+      (setq ac-clang-results (ac-clang-parse-output ac-clang-prefix))
+      (message "Parsed clang output"))
       ;; it is critical to complete members, so 
       ;; we force ac-start to show up.
     (ac-start :force-init t)
@@ -212,25 +211,22 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
         ;; Reset completion results
         (setq ac-clang-results nil)
         (message "Received clang completion results"))
-    (when ac-clang-process
-      ;; The previous clang process is still running, kill it before starting a
-      ;; new process.
-      (kill-process ac-clang-process)
-      (setq ac-clang-process nil)
-      (message "Kill ongoing clang process"))
-    (let ((buf (get-buffer-create "*clang-output*")))
-      (with-current-buffer buf
-        (erase-buffer))
-      (setq ac-clang-prefix ac-prefix)
-      (setq ac-clang-process
-            (apply 'start-process
-                   "clang" buf ac-clang-executable args))
-      (unless ac-clang-auto-save
-        (process-send-region ac-clang-process (point-min) (point))
-        (process-send-eof ac-clang-process))
-      (set-process-sentinel ac-clang-process 'ac-clang-sentinel)
-      (set-process-filter ac-clang-process 'ac-clang-filter)
-      (message "Started clang process"))
+    (if ac-clang-process
+        ;; The previous clang process is still running, we have to be patient
+        (message "Clang process still running")
+      (let ((buf (get-buffer-create "*clang-output*")))
+        (with-current-buffer buf
+          (erase-buffer))
+        (setq ac-clang-prefix ac-prefix)
+        (setq ac-clang-process
+              (apply 'start-process
+                     "clang" buf ac-clang-executable args))
+        (unless ac-clang-auto-save
+          (process-send-region ac-clang-process (point-min) (point))
+          (process-send-eof ac-clang-process))
+        (set-process-sentinel ac-clang-process 'ac-clang-sentinel)
+        (set-process-filter ac-clang-process 'ac-clang-filter)
+        (message "Started clang process")))
     nil))
 
 (defsubst ac-clang-build-location (pos)
