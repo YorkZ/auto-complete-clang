@@ -168,7 +168,7 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
     (with-current-buffer buf (erase-buffer))
     (setq res (if ac-clang-auto-save
                   (apply 'call-process ac-clang-executable nil buf nil args)
-                (apply 'call-process-region (point-min) (point-max)
+                (apply 'call-process-region (point-min) (point)
                        ac-clang-executable nil buf nil args)))
     (with-current-buffer buf
       (unless (eq 0 res)
