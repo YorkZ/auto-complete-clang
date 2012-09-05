@@ -302,7 +302,7 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
         (ret-t "") ret-f)
     (setq ss (split-string raw-help "\n"))
     (dolist (s ss)
-      (when (string-match "\\[#\\(.*\\)#\\]" s)
+      (when (string-match "\\[#\\(.*?\\)#\\]" s)
         (setq ret-t (match-string 1 s)))
       (setq s (replace-regexp-in-string "\\[#.*?#\\]" "" s))
       (cond ((string-match "^\\([^(]*\\)\\((.*)\\)" s)
