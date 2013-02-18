@@ -58,6 +58,7 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
   :group 'auto-complete
   :type '(repeat (string :tag "Argument" "")))
 (put 'ac-clang-flags 'safe-local-variable 'listp)
+(put 'ac-clang-prefix-header 'safe-local-variable 'listp)
 
 ;;; Whether to call clang asynchronously
 (defcustom ac-clang-asynchronous nil
