@@ -1,7 +1,7 @@
 ;;; auto-complete-clang.el --- Auto Completion source for clang for GNU Emacs
 
 ;; Copyright (C) 2010  Brian Jiang
-;; Copyright (C) 2012  York Zhao
+;; Copyright (C) 2012-2013 York Zhao
 
 ;; Author: Brian Jiang <brianjcj@gmail.com>
 ;; Keywords: completion, convenience
@@ -85,6 +85,46 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
 
 (defvar ac-template-start-point nil)
 (defvar ac-template-candidates (list "ok" "no" "yes:)"))
+
+(defvar ac-clang-speck-window-suspend-list nil)
+
+(defun ac-clang-suspend-speck ()
+  (when speck-mode
+    (setq ac-clang-speck-window-suspend-list
+          (delq nil
+                (mapcar #'(lambda (window)
+                            (when (memq window speck-window-list)
+                              window))
+                 `(,(selected-window) ,(next-window)))))
+    (mapc #'(lambda (window)
+              (setq speck-window-list
+                    (delq window speck-window-list)))
+          ac-clang-speck-window-suspend-list)))
+
+(defun ac-clang-desuspend-speck ()
+  (when speck-mode
+    (mapc #'(lambda (window)
+              (unless (memq window speck-window-list)
+                (with-current-buffer (window-buffer window)
+                  (setq speck-window-list
+                        (cons window speck-window-list)))))
+          ac-clang-speck-window-suspend-list)
+    (setq ac-clang-speck-window-suspend-list nil)))
+
+(defmacro ac-clang-with-speck-suspended (&rest body)
+  "If `speck-mode' is on, deactivate it, execute BODY and
+activate it again."
+  (declare (indent 0) (debug t))
+  `(if speck-mode
+       (progn
+         (ac-clang-suspend-speck)
+         (unwind-protect
+             ,@body
+           ;; Have to re-activate `speck' after 0.1 - 2 sec. If re-activate
+           ;; immediately `auto-complete' candidate menu would not show up until
+           ;; `speck' is done.
+           (run-at-time 0.2 nil 'ac-clang-desuspend-speck)))
+     ,@body))
 
 ;;; Set the Clang prefix header
 (defun ac-clang-set-prefix-header (ph)
@@ -286,11 +326,13 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
          (basic-save-buffer))
     (save-restriction
       (widen)
-      (apply (if ac-clang-asynchronous
-                 'ac-clang-start-process
-               'ac-clang-call-process)
-             ac-prefix
-             (ac-clang-build-complete-args (- (point) (length ac-prefix)))))))
+      (ac-clang-with-speck-suspended
+        (apply (if ac-clang-asynchronous
+                   'ac-clang-start-process
+                 'ac-clang-call-process)
+               ac-prefix
+               (ac-clang-build-complete-args
+                (- (point) (length ac-prefix))))))))
 
 (defun ac-clang-action ()
   (interactive)
