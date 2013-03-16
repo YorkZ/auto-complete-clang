@@ -317,22 +317,36 @@ activate it again."
         (ac-clang-clean-document s))))
 
 (defun ac-clang-candidate ()
-  (unless (memq (get-text-property (point) 'face)
-                '(font-lock-comment-face
-                  font-lock-comment-delimiter-face
-                  font-lock-string-face))
-    (and ac-clang-auto-save
-         (buffer-modified-p)
-         (basic-save-buffer))
-    (save-restriction
-      (widen)
-      (ac-clang-with-speck-suspended
-        (apply (if ac-clang-asynchronous
-                   'ac-clang-start-process
-                 'ac-clang-call-process)
-               ac-prefix
-               (ac-clang-build-complete-args
-                (- (point) (length ac-prefix))))))))
+  (cl-labels
+      ((;; Auxiliary function  `no-prefix-p'
+        no-prefix-p
+        nil
+        (let ((ch (char-before)))
+          (and (string= ac-prefix "")
+               (not (eq ch ?\.))
+               ;; ->
+               (not (and (eq ch ?>)
+                         (eq (char-before (1- (point))) ?-)))
+               ;; ::
+               (not (and (eq ch ?:)
+                         (eq (char-before (1- (point))) ?:)))))))
+    (unless (or (no-prefix-p)
+                (memq (get-text-property (point) 'face)
+                      '(font-lock-comment-face
+                        font-lock-comment-delimiter-face
+                        font-lock-string-face)))
+      (and ac-clang-auto-save
+           (buffer-modified-p)
+           (basic-save-buffer))
+      (save-restriction
+        (widen)
+        (ac-clang-with-speck-suspended
+          (apply (if ac-clang-asynchronous
+                     'ac-clang-start-process
+                   'ac-clang-call-process)
+                 ac-prefix
+                 (ac-clang-build-complete-args
+                  (- (point) (length ac-prefix)))))))))
 
 (defun ac-clang-action ()
   (interactive)
