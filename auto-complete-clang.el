@@ -4,6 +4,7 @@
 ;; Copyright (C) 2012-2013 York Zhao
 
 ;; Author: Brian Jiang <brianjcj@gmail.com>
+;;         York Zhao <gtdplatform@gmail.com>
 ;; Keywords: completion, convenience
 ;; Version: 0.1h
 
@@ -82,6 +83,8 @@ This variable will typically contain include paths, e.g., ( \"-I~/MyProject\", \
 (defvar ac-clang-process nil)
 (defvar ac-clang-prefix "")
 (defvar ac-clang-results nil)
+(defvar ac-clang-last-prefix-point nil)
+(defvar ac-clang-no-candidate-from nil)
 
 (defvar ac-template-start-point nil)
 (defvar ac-template-candidates (list "ok" "no" "yes:)"))
@@ -330,7 +333,9 @@ activate it again."
                ;; ::
                (not (and (eq ch ?:)
                          (eq (char-before (1- (point))) ?:)))))))
-    (unless (or (no-prefix-p)
+    (unless (or (and ac-clang-no-candidate-from
+                     (>= (point) ac-clang-no-candidate-from))
+                (no-prefix-p)
                 (memq (get-text-property (point) 'face)
                       '(font-lock-comment-face
                         font-lock-comment-delimiter-face
@@ -341,12 +346,15 @@ activate it again."
       (save-restriction
         (widen)
         (ac-clang-with-speck-suspended
-          (apply (if ac-clang-asynchronous
-                     'ac-clang-start-process
-                   'ac-clang-call-process)
-                 ac-prefix
-                 (ac-clang-build-complete-args
-                  (- (point) (length ac-prefix)))))))))
+          (let ((candidates (apply (if ac-clang-asynchronous
+                                       'ac-clang-start-process
+                                     'ac-clang-call-process)
+                                   ac-prefix
+                                   (ac-clang-build-complete-args
+                                    (- (point) (length ac-prefix))))))
+            (unless candidates
+              (setq ac-clang-no-candidate-from (point)))
+            candidates))))))
 
 (defun ac-clang-action ()
   (interactive)
@@ -401,16 +409,22 @@ activate it again."
            (message (replace-regexp-in-string "\n" "   ;    " help))))))
 
 (defun ac-clang-prefix ()
-  (or (ac-prefix-symbol)
-      (let ((c (char-before)))
-        (when (or (eq ?\. c)
-                  ;; ->
-                  (and (eq ?> c)
-                       (eq ?- (char-before (1- (point)))))
-                  ;; ::
-                  (and (eq ?: c)
-                       (eq ?: (char-before (1- (point))))))
-          (point)))))
+  (let* ((char (char-before))
+         (prefix-point
+          (or (ac-prefix-symbol)
+              (when (or (eq ?\. char)
+                        ;; ->
+                        (and (eq ?> char)
+                             (eq ?- (char-before (1- (point)))))
+                        ;; ::
+                        (and (eq ?: char)
+                             (eq ?: (char-before (1- (point))))))
+                (point)))))
+    (unless (eq ac-clang-last-prefix-point prefix-point)
+      (setq ac-clang-last-prefix-point prefix-point
+            ;; Reset `ac-clang-no-candidate-from' when prefix point changes
+            ac-clang-no-candidate-from nil))
+    prefix-point))
 
 (defun ac-clang-same-count-in-string (c1 c2 s)
   (let ((count 0) (cur 0) (end (length s)) c)
